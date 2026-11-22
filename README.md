@@ -7,6 +7,12 @@
 
 > 軟體內的「設定 → 說明」（F1）有同樣內容；修改功能時請一併更新 `app/ui/manual.py` 與本檔。
 
+## 下載
+- **[下載最新版安裝檔](https://github.com/GavinWang57/DrawCheckPro/releases/latest)**（Windows，`DrawCheckPro-Setup-<版本>.exe`）
+- 目前版本：[1.0.0](https://github.com/GavinWang57/DrawCheckPro/releases/download/v1.0.0/DrawCheckPro-Setup-1.0.0.exe)
+
+安裝不需要系統管理員權限，下載後直接執行即可。
+
 ## 畫面
 - **上方工具列**：先點分類標籤，再顯示該類圖示
   - 檔案：開啟、最近檔案、儲存、匯出清單、匯出標記PDF、存標記頁面、列印
