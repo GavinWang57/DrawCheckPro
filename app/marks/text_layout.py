@@ -5,6 +5,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
 
 from app.marks.model import text_style
+from app.marks.symbols import SYMBOL_FONT_FAMILY
 
 FONT_FAMILY = "Microsoft JhengHei"
 _BASE_PX = 100  # 先用 100px 的字量測/繪製，再縮放到實際 pt，避免小數點字級被取整
@@ -12,7 +13,8 @@ _FLAGS = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.Te
 
 
 def _font(style: dict) -> QFont:
-  f = QFont(FONT_FAMILY)
+  f = QFont()
+  f.setFamilies([FONT_FAMILY, SYMBOL_FONT_FAMILY])  # 正黑體缺字（幾何公差符號）由符號字型補上
   f.setPixelSize(_BASE_PX)
   f.setBold(bool(style.get("bold")))
   f.setItalic(bool(style.get("italic")))

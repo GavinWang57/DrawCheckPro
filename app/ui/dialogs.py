@@ -1,8 +1,8 @@
 """設定與說明對話框。"""
 from __future__ import annotations
 
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-                               QTextBrowser, QVBoxLayout)
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel,
+                               QLineEdit, QTextBrowser, QVBoxLayout)
 
 from app.marks.model import default_marker
 from app.marks.store import sidecar_path
@@ -25,13 +25,18 @@ class HelpDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-  def __init__(self, checker: str, pdf_path=None, parent=None):
+  def __init__(self, checker: str, pdf_path=None, parent=None, wheel_up_zooms_in: bool = True):
     super().__init__(parent)
     self.setWindowTitle("設定")
     self.checker = QLineEdit(checker)
     self.checker.setPlaceholderText(f"留空＝使用電腦使用者（{default_marker()}）")
     form = QFormLayout()
     form.addRow("標記人", self.checker)
+    self.wheel = QComboBox()
+    self.wheel.addItem("滾輪往上＝放大（往下＝縮小）", True)
+    self.wheel.addItem("滾輪往下＝放大（往上＝縮小）", False)
+    self.wheel.setCurrentIndex(0 if wheel_up_zooms_in else 1)
+    form.addRow("滾輪縮放", self.wheel)
     if pdf_path:
       side = QLabel(str(sidecar_path(pdf_path)))
       side.setObjectName("Muted")
@@ -44,7 +49,10 @@ class SettingsDialog(QDialog):
     lay = QVBoxLayout(self)
     lay.addLayout(form)
     lay.addWidget(buttons)
-    self.resize(460, 150)
+    self.resize(460, 180)
 
   def checker_name(self) -> str:
     return self.checker.text().strip()
+
+  def wheel_up_zooms_in(self) -> bool:
+    return bool(self.wheel.currentData())

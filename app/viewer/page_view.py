@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsView
 from app.document import DrawingDocument
 from app.marks.controller import MarkController
 from app.marks import text_layout
-from app.marks.items import MarkItem
+from app.marks.items import HANDLE_PX, MarkItem
 from app.marks.model import (KIND_ELLIPSE, KIND_RECT, KIND_STAMP, KIND_TEXT, STATUS_NG, STATUS_OK,
                              STATUS_NONE, STATUS_PENDING, Mark)
 from app.ui import theme
@@ -33,6 +33,7 @@ _STAMP_TOOLS = {TOOL_OK: STATUS_OK, TOOL_NG: STATUS_NG, TOOL_PENDING: STATUS_PEN
 
 MIN_SCALE, MAX_SCALE = 0.05, 64.0
 STAMP_SCREEN_PX = 26
+STAMP_MIN_PX = 8
 CHECKER_DEFAULT = ""
 PX_PER_PT_100 = 96 / 72
 HIT_FILL = QColor(255, 214, 0, 70)
@@ -51,6 +52,7 @@ class PageView(QGraphicsView):
   linkActivated = Signal(str)
   toolMenuRequested = Signal(list, QPoint)      # 審查工具中按右鍵：游標下的標記 id、螢幕座標
   escapePressed = Signal()                      # 非選取工具時按 Esc
+  stampSizeChanged = Signal(float)              # 戳記大小（pt），供下次新增沿用
 
   def __init__(self, controller: MarkController, parent=None):
     super().__init__(parent)
@@ -69,6 +71,10 @@ class PageView(QGraphicsView):
     self._hits: list[tuple[int, fitz.Rect]] = []
     self._hit_items: list[QGraphicsRectItem] = []
     self._current_hit = -1
+    self._resize_item: MarkItem | None = None
+    self._on_handle = False
+    self.stamp_size_pt = 0.0  # 0 = 尚未有紀錄，依螢幕像素決定
+    self.wheel_up_zooms_in = True
 
     self.setScene(QGraphicsScene(self))
     self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
@@ -224,6 +230,8 @@ class PageView(QGraphicsView):
     if e.modifiers() & Qt.KeyboardModifier.ShiftModifier:
       return super().wheelEvent(e)
     delta = e.angleDelta().y()
+    if not self.wheel_up_zooms_in:
+      delta = -delta
     if delta:
       self._apply_scale(1.0015 ** delta)
     e.accept()
@@ -335,7 +343,31 @@ class PageView(QGraphicsView):
     self._pan_from = QPointF(pos)
     self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
 
+  def _remember_stamp_size(self, size: float):
+    if abs(size - self.stamp_size_pt) > 1e-3:
+      self.stamp_size_pt = size
+      self.stampSizeChanged.emit(size)
+
+  def _handle_at(self, pos) -> MarkItem | None:
+    """游標下是否為已選取戳記的右下角縮放把手。"""
+    for item in self.scene().selectedItems():
+      if not isinstance(item, MarkItem) or not item.resizable():
+        continue
+      corner = self.mapFromScene(item.display_rect().bottomRight())
+      dx, dy = corner.x() - pos.x(), corner.y() - pos.y()
+      if -3 <= dx <= HANDLE_PX + 2 and -3 <= dy <= HANDLE_PX + 2:
+        return item
+    return None
+
   def mousePressEvent(self, e):
+    if (e.button() == Qt.MouseButton.LeftButton and self.tool == TOOL_SELECT
+        and not self._space):
+      item = self._handle_at(e.position().toPoint())
+      if item is not None:
+        self._resize_item = item
+        self.hover_bar.hide()
+        e.accept()
+        return
     if e.button() == Qt.MouseButton.MiddleButton or (
         (self._space or self.tool == TOOL_PAN) and e.button() == Qt.MouseButton.LeftButton):
       self._start_pan(e.position())
@@ -357,7 +389,8 @@ class PageView(QGraphicsView):
       if self.tool == TOOL_TEXT:
         self.textPlaceRequested.emit(p)
       elif self.tool in _STAMP_TOOLS:
-        size = STAMP_SCREEN_PX / self.current_scale()
+        size = self.stamp_size_pt or STAMP_SCREEN_PX / self.current_scale()
+        self._remember_stamp_size(size)
         self._create_mark(KIND_STAMP, _STAMP_TOOLS[self.tool],
                           QRectF(p.x() - size / 2, p.y() - size / 2, size, size))
       else:
@@ -385,8 +418,45 @@ class PageView(QGraphicsView):
       self._draw_item.setRect(QRectF(self._draw_start, p).normalized())
       e.accept()
       return
+    if self._resize_item is not None:
+      self._drag_resize(self.mapToScene(e.position().toPoint()))
+      e.accept()
+      return
     super().mouseMoveEvent(e)
+    self._update_handle_cursor(e)
     self._update_hover(e)
+
+  def _update_handle_cursor(self, e):
+    pos = e.position().toPoint()
+    over = (self.tool == TOOL_SELECT and e.buttons() == Qt.MouseButton.NoButton
+            and self._handle_at(pos) is not None)
+    if over:
+      self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+    elif self._on_handle:
+      item = self._mark_at(pos)
+      self.viewport().setCursor(item.cursor() if item else self._idle_cursor())
+    self._on_handle = over
+
+  def _drag_resize(self, p: QPointF):
+    """戳記維持正方形，以左上角為基準縮放。"""
+    r = self._resize_item.display_rect()
+    side = max(p.x() - r.left(), p.y() - r.top(), STAMP_MIN_PX / self.current_scale())
+    if self.page_item:
+      page = self.page_item.boundingRect()
+      side = min(side, page.right() - r.left(), page.bottom() - r.top())
+    self._resize_item.set_display_rect(QRectF(r.left(), r.top(), side, side))
+
+  def _finish_resize(self):
+    item, self._resize_item = self._resize_item, None
+    self.viewport().setCursor(self._idle_cursor())
+    m = self.ctl.get(item.mark_id)
+    if not m:
+      return
+    r = item.display_rect()
+    new_rect = self.display_to_mark_rect(r)
+    if any(abs(a - b) > 1e-3 for a, b in zip(new_rect, m.rect)):
+      self.ctl.update_marks([m.id], "調整標記大小", rect=new_rect)
+      self._remember_stamp_size(r.width())
 
   # ---- 文字框浮動工具列 ----
   def _update_hover(self, e):
@@ -432,6 +502,10 @@ class PageView(QGraphicsView):
       item.setSelected(True)
 
   def mouseReleaseEvent(self, e):
+    if self._resize_item is not None and e.button() == Qt.MouseButton.LeftButton:
+      self._finish_resize()
+      e.accept()
+      return
     if self._pan_from is not None and e.button() in (Qt.MouseButton.MiddleButton,
                                                       Qt.MouseButton.LeftButton):
       self._pan_from = None

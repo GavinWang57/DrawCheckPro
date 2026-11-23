@@ -14,8 +14,8 @@ from app.printing import print_marked
 from app.ui import theme
 from app.viewer import page_view as pv
 from app.viewer.snapshot_overlay import ACTION_COPY
-from app.ui.output_dialog import (ALL_PDF, ALL_PNG, PAGE_PDF, PAGE_PNG, SCOPE_PAGE, OutputDialog,
-                                  PrintOptionsDialog)
+from app.ui.output_dialog import (ALL_PDF, ALL_PNG, PAGE_PDF, PAGE_PNG, SCOPE_ALL, SCOPE_PAGE,
+                                  OutputDialog, PrintOptionsDialog, SelectedExportDialog)
 
 MAX_PNG_PIXELS = pdf_export.MAX_STITCH_PIXELS
 
@@ -72,6 +72,30 @@ class OutputActionsMixin:
         img = imgs[0] if len(imgs) == 1 else pdf_export.stitch_vertical(imgs)
         pdf_export.save_png(img, path)
       self._run_export(work, path)
+
+  def export_selected_marks(self, ids: list[str]):
+    marks = [m for m in (self.ctl.get(i) for i in ids) if m]
+    if not self.doc or not marks:
+      return
+    marked_pages = sorted({m.page for m in marks})
+    dlg = SelectedExportDialog(len(marks), len(marked_pages), self.doc.page_count,
+                               self.qs.value("export_enhanced", "false") == "true",
+                               self.focused_parent())
+    theme.dark_title_bar(dlg)
+    if not dlg.exec():
+      return
+    enhanced = dlg.enhanced.isChecked()
+    self.qs.setValue("export_enhanced", "true" if enhanced else "false")
+    pages = list(range(self.doc.page_count)) if dlg.scope() == SCOPE_ALL else marked_pages
+    path = self._ask_save("輸出選取標記的 PDF", f"{self.doc.path.stem}_標記_選取.pdf",
+                          "PDF (*.pdf)")
+    if path:
+      self._run_export(lambda: pdf_export.save_pdf(self.doc, marks, pages, enhanced, path), path)
+
+  def focused_parent(self):
+    """標記管理視窗開著時，對話框以它為 parent，才不會被它擋住。"""
+    mgr = getattr(self, "mark_manager", None)
+    return mgr if mgr is not None and mgr.isVisible() else self
 
   def _run_export(self, work, path: str):
     try:
@@ -134,22 +158,24 @@ class OutputActionsMixin:
   # ---- 文字標記 ----
   def on_text_place(self, pos: QPointF):
     style = {"font_size": self.view.default_text_font_pt(), **self._last_text_style()}
-    dlg = TextMarkDialog(style=style, checker=self.view.checker, title="新增文字標記", parent=self)
+    dlg = TextMarkDialog(style=style, checker=self.view.checker, title="新增文字標記", parent=self,
+                         font_unit=self._text_font_unit())
     theme.dark_title_bar(dlg)
     if dlg.exec():
       values = dlg.values()
-      self._remember_text_style(values["style"])
+      self._remember_text_style(values["style"], dlg.unit())
       self.view.create_text_mark(pos, values)
 
   def edit_text_mark(self, mid: str):
     m = self.ctl.get(mid)
     dlg = TextMarkDialog(m.text, m.style, m.link, m.status, m.checker,
-                         f"文字標記 #{m.no}（第 {m.page + 1} 頁）", self)
+                         f"文字標記 #{m.no}（第 {m.page + 1} 頁）", self,
+                         font_unit=self._text_font_unit())
     theme.dark_title_bar(dlg)
     if not dlg.exec():
       return
     v = dlg.values()
-    self._remember_text_style(v["style"])
+    self._remember_text_style(v["style"], dlg.unit())
     if m.page == self.view.pno:
       v["rect"] = self.view.resized_text_rect(m, v["text"], v["style"])
     self.ctl.update_marks([mid], "編輯文字標記", **v)
@@ -172,7 +198,11 @@ class OutputActionsMixin:
         out[k] = str(v)
     return out
 
-  def _remember_text_style(self, style: dict):
+  def _text_font_unit(self) -> str:
+    return str(self.qs.value("text_font_unit", "pt"))
+
+  def _remember_text_style(self, style: dict, unit: str = "pt"):
+    self.qs.setValue("text_font_unit", unit)
     for k, v in style.items():
       if k == "font_size":
         continue

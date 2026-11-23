@@ -47,7 +47,7 @@ def _asset_dir() -> Path:
 def stylesheet() -> str:
   a = _asset_dir().as_posix()
   return f"""
-* {{ color: {TEXT}; font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI"; font-size: 13px; }}
+* {{ color: {TEXT}; font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI", "Segoe UI Symbol"; font-size: 13px; }}
 QMainWindow, QDialog {{ background: {BG}; }}
 QToolTip {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER_HI}; padding: 4px; }}
 
@@ -162,6 +162,16 @@ QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
 #BottomBar QToolButton:hover {{ background: rgba(66,165,245,0.16); border-color: {BORDER_HI}; }}
 #BottomBar QToolButton:checked {{ background: rgba(30,136,229,0.45); border-color: {ACCENT_HI}; }}
 QGraphicsView {{ border: 1px solid {BORDER}; border-radius: 4px; }}
+QToolButton#StatusChip {{ background: transparent; border: 1px solid {BORDER}; border-radius: 12px;
+  padding: 3px 10px 3px 6px; color: #8fa6c4; }}
+QToolButton#StatusChip:hover {{ border-color: {BORDER_HI}; }}
+QToolButton#StatusChip:checked {{ background: rgba(30,136,229,0.28); border-color: {ACCENT_HI};
+  color: white; }}
+QToolButton#SymbolButton {{ font-family: "Segoe UI Symbol", "Microsoft JhengHei"; font-size: 16px;
+  min-width: 26px; min-height: 26px; padding: 0 3px; border: 1px solid {BORDER}; border-radius: 4px;
+  background: transparent; }}
+QToolButton#SymbolButton:hover {{ background: rgba(66,165,245,0.18); border-color: {ACCENT_HI}; }}
+QToolButton#SymbolButton:pressed {{ background: rgba(66,165,245,0.35); }}
 """
 
 

@@ -5,21 +5,39 @@ import os
 
 from PySide6.QtCore import QRectF, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QDoubleValidator, QPainter, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout)
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog,
+                               QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
+                               QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QToolButton,
+                               QVBoxLayout)
 
 from app.marks import text_layout
 from app.marks.model import STATUS_LABELS, STATUS_NONE, STATUSES, UNDERLINES, text_style
+from app.marks.symbols import SYMBOL_GROUPS
+from app.ui import icons
 
-FONT_SIZES = (6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72)
-FONT_MIN, FONT_MAX = 2.0, 200.0
+UNIT_PT, UNIT_MM = "pt", "mm"
+MM_PER_PT = 25.4 / 72
+FONT_SIZES = {
+  UNIT_PT: (6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72),
+  UNIT_MM: (1.8, 2.5, 3.5, 5, 7, 10, 14, 20),  # ISO 3098 字高系列
+}
+FONT_MIN, FONT_MAX = 2.0, 200.0  # pt
+STATUS_ICONS = {"none": "status_none", "ok": "stamp_ok", "ng": "stamp_ng",
+                "pending": "stamp_pending"}
 BORDER_WIDTHS = (0.0, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
 PREVIEW_W, PREVIEW_H = 400, 120
 
 
 def _fmt(v: float) -> str:
   return f"{v:g}"
+
+
+def pt_to_unit(pt: float, unit: str) -> float:
+  return round(pt * MM_PER_PT, 2) if unit == UNIT_MM else round(pt, 1)
+
+
+def unit_to_pt(value: float, unit: str) -> float:
+  return value / MM_PER_PT if unit == UNIT_MM else value
 
 
 class ColorButton(QPushButton):
@@ -70,28 +88,54 @@ def _transparent(hex_argb: str) -> str:
 
 class TextMarkDialog(QDialog):
   def __init__(self, text: str = "", style: dict | None = None, link: str = "",
-               status: str = "none", checker: str = "", title: str = "文字標記", parent=None):
+               status: str = "none", checker: str = "", title: str = "文字標記", parent=None,
+               font_unit: str = UNIT_PT):
     super().__init__(parent)
     self.setWindowTitle(title)
     s = text_style(style)
 
+    status_row = QHBoxLayout()
+    status_row.addWidget(QLabel("核對狀態"))
+    self.status_group = QButtonGroup(self)
+    self.status_group.setExclusive(True)
+    self.status_buttons: dict[str, QToolButton] = {}
+    for st in STATUSES:
+      b = QToolButton()
+      b.setText(STATUS_LABELS[st])
+      b.setIcon(icons.icon(STATUS_ICONS[st]))
+      b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+      b.setCheckable(True)
+      b.setObjectName("StatusChip")
+      b.setMinimumWidth(80)
+      self.status_group.addButton(b)
+      self.status_buttons[st] = b
+      status_row.addWidget(b)
+    status_row.addStretch(1)
+    self.status_buttons[status if status in STATUSES else STATUS_NONE].setChecked(True)
+
     self.text = QPlainTextEdit(text)
     self.text.setPlaceholderText("輸入要顯示在圖面上的文字（可多行）")
     self.text.setMinimumHeight(70)
+    symbols_box = self._build_symbols()
 
     fmt = QGroupBox("格式")
     ff = QFormLayout(fmt)
     self.font_size = QComboBox()
     self.font_size.setEditable(True)
     self.font_size.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-    self.font_size.addItems([_fmt(v) for v in FONT_SIZES])
-    self.font_size.setValidator(QDoubleValidator(FONT_MIN, FONT_MAX, 1, self))
-    self.font_size.setCurrentText(_fmt(s["font_size"]))
-    self.font_size.setToolTip("直接輸入或從清單選擇（單位 pt）")
+    self.font_size.setToolTip("直接輸入或從清單選擇")
     self.font_size.setFixedWidth(90)
+    self.font_unit = QComboBox()
+    self.font_unit.addItem("pt", UNIT_PT)
+    self.font_unit.addItem("mm", UNIT_MM)
+    self.font_unit.setToolTip("字級單位；mm 為圖面上的實際字高（1 pt ≈ 0.353 mm）")
+    self._unit = font_unit if font_unit in (UNIT_PT, UNIT_MM) else UNIT_PT
+    self.font_unit.setCurrentIndex(self.font_unit.findData(self._unit))
+    self._fill_font_sizes(s["font_size"])
+    self.font_unit.currentIndexChanged.connect(self._on_unit_changed)
     row = QHBoxLayout()
     row.addWidget(self.font_size)
-    row.addWidget(QLabel("pt"))
+    row.addWidget(self.font_unit)
     row.addStretch(1)
     ff.addRow("字級", row)
 
@@ -156,13 +200,8 @@ class TextMarkDialog(QDialog):
     browse.clicked.connect(self._browse)
     test.clicked.connect(lambda: open_link(self.link.text().strip()))
 
-    self.status = QComboBox()
-    for st in STATUSES:
-      self.status.addItem(STATUS_LABELS[st], st)
-    self.status.setCurrentIndex(STATUSES.index(status) if status in STATUSES else 0)
     self.checker = QLineEdit(checker)
     meta = QFormLayout()
-    meta.addRow("核對狀態", self.status)
     meta.addRow("標記人", self.checker)
 
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -170,7 +209,9 @@ class TextMarkDialog(QDialog):
     buttons.accepted.connect(self._accept)
     buttons.rejected.connect(self.reject)
     lay = QVBoxLayout(self)
+    lay.addLayout(status_row)
     lay.addWidget(self.text)
+    lay.addWidget(symbols_box)
     lay.addWidget(fmt)
     lay.addWidget(link_box)
     lay.addLayout(meta)
@@ -180,21 +221,76 @@ class TextMarkDialog(QDialog):
                 self.italic.toggled, self.strike.toggled, self.underline.currentIndexChanged,
                 self.text_color.changed, self.fill_color.changed, self.fill_clear.toggled,
                 self.border_color.changed, self.border_width.currentIndexChanged,
-                self.status.currentIndexChanged, self.link.textChanged):
+                self.status_group.buttonToggled, self.link.textChanged):
       sig.connect(self._refresh)
     self._refresh()
     self.resize(500, 0)
 
+  def _build_symbols(self) -> QGroupBox:
+    box = QGroupBox("插入符號")
+    grid = QGridLayout(box)
+    grid.setHorizontalSpacing(4)
+    grid.setVerticalSpacing(4)
+    self.symbol_buttons: dict[str, QToolButton] = {}
+    for row, (group, items) in enumerate(SYMBOL_GROUPS):
+      label = QLabel(group)
+      label.setObjectName("Muted")
+      grid.addWidget(label, row, 0)
+      line = QHBoxLayout()
+      line.setSpacing(3)
+      for sym, name in items:
+        b = QToolButton()
+        b.setObjectName("SymbolButton")
+        b.setText(sym)
+        b.setToolTip(f"{name}　{sym}")
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.clicked.connect(lambda _=False, s=sym: self.insert_symbol(s))
+        self.symbol_buttons[sym] = b
+        line.addWidget(b)
+      line.addStretch(1)
+      grid.addLayout(line, row, 1)
+    grid.setColumnStretch(1, 1)
+    return box
+
+  def insert_symbol(self, sym: str):
+    self.text.insertPlainText(sym)
+    self.text.setFocus()
+
+  def _fill_font_sizes(self, pt: float):
+    lo, hi = pt_to_unit(FONT_MIN, self._unit), pt_to_unit(FONT_MAX, self._unit)
+    self.font_size.blockSignals(True)
+    self.font_size.clear()
+    self.font_size.addItems([_fmt(v) for v in FONT_SIZES[self._unit]])
+    self.font_size.setValidator(QDoubleValidator(lo, hi, 2 if self._unit == UNIT_MM else 1, self))
+    self.font_size.setCurrentText(_fmt(pt_to_unit(pt, self._unit)))
+    self.font_size.blockSignals(False)
+
+  def _on_unit_changed(self, *_):
+    pt = self._font_size()
+    self._unit = self.font_unit.currentData()
+    self._fill_font_sizes(pt)
+    self._refresh()
+
+  def unit(self) -> str:
+    return self._unit
+
   def _font_size(self) -> float:
+    """目前字級（pt）。"""
     try:
-      v = float(self.font_size.currentText())
+      v = unit_to_pt(float(self.font_size.currentText()), self._unit)
     except ValueError:
       return text_style(None)["font_size"]
     return min(max(v, FONT_MIN), FONT_MAX)
 
+  def status(self) -> str:
+    for st, b in self.status_buttons.items():
+      if b.isChecked():
+        return st
+    return STATUS_NONE
+
   def _style(self) -> dict:
     return {
-      "font_size": round(self._font_size(), 1),
+      "font_size": round(self._font_size(), 2),
       "bold": self.bold.isChecked(),
       "text_color": self.text_color.value,
       "fill_color": _transparent(self.fill_color.value) if self.fill_clear.isChecked()
@@ -231,8 +327,8 @@ class TextMarkDialog(QDialog):
     p.scale(k, k)
     box = QRectF(0, 0, w, h)
     text_layout.paint(p, box, text, style)
-    if self.status.currentData() != STATUS_NONE:
-      paint_status_badge(p, badge, self.status.currentData())
+    if self.status() != STATUS_NONE:
+      paint_status_badge(p, badge, self.status())
     p.end()
     return pm
 
@@ -252,7 +348,7 @@ class TextMarkDialog(QDialog):
     return {
       "text": self.text.toPlainText().strip(),
       "link": self.link.text().strip(),
-      "status": self.status.currentData(),
+      "status": self.status(),
       "checker": self.checker.text().strip(),
       "style": self._style(),
     }

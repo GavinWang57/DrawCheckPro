@@ -10,6 +10,7 @@ from app.marks.model import (KIND_ELLIPSE, KIND_STAMP, KIND_TEXT, STATUS_COLORS,
                              STATUS_NONE, STATUS_OK, STATUS_PENDING, Mark, text_style)
 
 SELECT_COLOR = QColor("#2f7df6")
+HANDLE_PX = 9  # 縮放把手的螢幕像素大小
 
 
 def _symbol_path(status: str, r: QRectF) -> QPainterPath:
@@ -111,6 +112,17 @@ class MarkItem(QGraphicsItem):
   def display_rect(self) -> QRectF:
     return self._size.translated(self.pos())
 
+  def resizable(self) -> bool:
+    return self._mark.kind == KIND_STAMP
+
+  def set_display_rect(self, r: QRectF):
+    """拖曳縮放時的即時預覽；放開後由 view 寫回 Mark。"""
+    self.prepareGeometryChange()
+    self._size = QRectF(0, 0, r.width(), r.height())
+    self.setPos(r.topLeft())
+    self._label.setPos(self._size.width(), 0)
+    self.update()
+
   def boundingRect(self) -> QRectF:
     pad = max(self._size.width(), self._size.height()) * 0.08 + 1
     if self._mark.kind == KIND_TEXT:
@@ -178,3 +190,15 @@ class MarkItem(QGraphicsItem):
       painter.setPen(pen)
       painter.setBrush(Qt.BrushStyle.NoBrush)
       painter.drawRect(self.boundingRect().adjusted(1, 1, -1, -1))
+      if self.resizable():
+        self._paint_handle(painter)
+
+  def _paint_handle(self, painter):
+    scale = painter.worldTransform().m11() or 1.0
+    d = HANDLE_PX / scale
+    c = self._size.bottomRight()
+    pen = QPen(SELECT_COLOR, 1.2)
+    pen.setCosmetic(True)
+    painter.setPen(pen)
+    painter.setBrush(QColor("white"))
+    painter.drawRect(QRectF(c.x() - d, c.y() - d, d, d))

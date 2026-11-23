@@ -13,10 +13,12 @@ from app.marks.model import (KIND_ELLIPSE, KIND_LABELS, KIND_STAMP, KIND_TEXT, S
                              STATUS_PENDING,
                              STATUS_LABELS, STATUS_NG, STATUS_NONE, STATUS_OK, Mark, parse_color,
                              text_style)
+from app.marks.symbols import SYMBOL_FONT_FILE
 
 FALLBACK_FONT = "china-t"  # PyMuPDF 內建；缺少 Ø 等符號，英數為全形寬度，只在找不到系統字型時使用
 _FONTS_DIR = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
 SYSTEM_FONTS = {False: ("msjh", _FONTS_DIR / "msjh.ttc"), True: ("msjhbd", _FONTS_DIR / "msjhbd.ttc")}
+SYMBOL_FONT = ("seguisym", _FONTS_DIR / SYMBOL_FONT_FILE)  # 補正黑體缺少的幾何公差等符號
 LABEL_FONT_PT = 6.0
 STITCH_GAP_PX = 24
 MAX_STITCH_PIXELS = 400_000_000  # 約 1.2GB RGB；超過就拒絕，避免記憶體爆掉
@@ -124,6 +126,39 @@ def _font_for(bold: bool) -> tuple[str, str | None, fitz.Font]:
   return name, fontfile, _font_cache[key]
 
 
+FontSpec = tuple[str, str | None, fitz.Font]
+
+
+def _symbol_font() -> FontSpec | None:
+  name, path = SYMBOL_FONT
+  if not path.exists():
+    return None
+  key = str(path)
+  if key not in _font_cache:
+    _font_cache[key] = fitz.Font(fontfile=key)
+  return name, key, _font_cache[key]
+
+
+def text_runs(line: str, bold: bool) -> list[tuple[str, FontSpec]]:
+  """把一行切成連續的字段，主字型缺字的部分改用符號字型。"""
+  main = _font_for(bold)
+  symbol = _symbol_font()
+  runs: list[tuple[str, FontSpec]] = []
+  for ch in line:
+    spec = main
+    if symbol and not main[2].has_glyph(ord(ch)) and symbol[2].has_glyph(ord(ch)):
+      spec = symbol
+    if runs and runs[-1][1] is spec:
+      runs[-1] = (runs[-1][0] + ch, spec)
+    else:
+      runs.append((ch, spec))
+  return runs
+
+
+def _runs_length(runs: list[tuple[str, FontSpec]], size: float) -> float:
+  return sum(spec[2].text_length(t, size) for t, spec in runs)
+
+
 ITALIC_SHEAR = 0.2  # 正值＝往右傾的一般斜體（已用實際輸出驗證方向）
 
 
@@ -133,7 +168,8 @@ def _draw_text_lines(page: fitz.Page, r: fitz.Rect, text: str, s: dict):
   先在「顯示座標」（使用者看到的方向）排版，再換算回未旋轉座標；insert_text 以
   rotate=頁面旋轉 讓文字在旋轉頁面上也正著顯示。斜體以 morph 在顯示方向傾斜。
   """
-  fontname, fontfile, font = _font_for(bool(s["bold"]))
+  bold = bool(s["bold"])
+  font = _font_for(bold)[2]
   text_rgb, text_a = parse_color(s["text_color"])
   disp = (r * page.rotation_matrix).normalize()
   derot = page.derotation_matrix
@@ -145,9 +181,9 @@ def _draw_text_lines(page: fitz.Page, r: fitz.Rect, text: str, s: dict):
   shear = rot_l * fitz.Matrix(1, 0, ITALIC_SHEAR, 1, 0, 0) * derot_l
 
   pad = s["font_size"] * 0.35 + s["border_width"]
-  lines = text.split("\n")
+  lines = [text_runs(line, bold) for line in text.split("\n")]
   size = s["font_size"]
-  widest = max((font.text_length(line, size) for line in lines), default=0)
+  widest = max((_runs_length(runs, size) for runs in lines), default=0)
   if italic:
     widest += size * 0.15
   room = disp.width - 2 * pad
@@ -156,14 +192,17 @@ def _draw_text_lines(page: fitz.Page, r: fitz.Rect, text: str, s: dict):
   line_h = size * (font.ascender - font.descender)
   thick = max(size * 0.06, 0.3)
 
-  for i, line in enumerate(lines):
+  for i, runs in enumerate(lines):
     base = fitz.Point(disp.x0 + pad, disp.y0 + pad + font.ascender * size + i * line_h)
-    origin = base * derot
-    if line:
-      page.insert_text(origin, line, fontsize=size, fontname=fontname, fontfile=fontfile,
+    line_origin = base * derot
+    x = base.x
+    for run, (fontname, fontfile, run_font) in runs:
+      origin = fitz.Point(x, base.y) * derot
+      page.insert_text(origin, run, fontsize=size, fontname=fontname, fontfile=fontfile,
                        color=text_rgb, fill_opacity=text_a, rotate=page.rotation,
-                       morph=(origin, shear) if italic else None, overlay=True)
-    width = font.text_length(line, size)
+                       morph=(line_origin, shear) if italic else None, overlay=True)
+      x += run_font.text_length(run, size)
+    width = x - base.x
     if width <= 0:
       continue
     offsets = []
@@ -217,6 +256,23 @@ def bookmark_title(m: Mark) -> str:
   return f"{title}：{s[:60]}" if s else title
 
 
+BOOKMARK_VIEW_PX = (900, 650)  # 假設的閱讀器可視範圍，用來決定書籤的放大倍率
+BOOKMARK_MIN_PT = 120
+BOOKMARK_MAX_ZOOM = 8.0
+
+
+def bookmark_dest(disp: fitz.Rect, out_page: int) -> dict:
+  """跳到標記並放大：以標記為中心、約 4 倍標記大小的範圍填滿畫面（座標為顯示方向）。"""
+  w = max(disp.width * 4, BOOKMARK_MIN_PT)
+  h = max(disp.height * 4, BOOKMARK_MIN_PT)
+  zoom = min(BOOKMARK_VIEW_PX[0] / w, BOOKMARK_VIEW_PX[1] / h)
+  zoom = min(max(zoom, 1.0), BOOKMARK_MAX_ZOOM)
+  vw, vh = BOOKMARK_VIEW_PX[0] / zoom, BOOKMARK_VIEW_PX[1] / zoom
+  cx, cy = (disp.x0 + disp.x1) / 2, (disp.y0 + disp.y1) / 2
+  return {"kind": fitz.LINK_GOTO, "page": out_page,
+          "to": fitz.Point(max(cx - vw / 2, 0), max(cy - vh / 2, 0)), "zoom": zoom}
+
+
 def build_toc(doc: fitz.Document, marks: list[Mark], page_map: dict[int, int]) -> list:
   """page_map：原始頁碼 → 輸出文件頁碼（0 起算）。"""
   toc = []
@@ -229,9 +285,7 @@ def build_toc(doc: fitz.Document, marks: list[Mark], page_map: dict[int, int]) -
     page = doc[out]
     for m in on_page:
       disp = (fitz.Rect(m.rect) * page.rotation_matrix).normalize()
-      toc.append([2, bookmark_title(m), out + 1,
-                  {"kind": fitz.LINK_GOTO, "page": out, "to": fitz.Point(disp.x0, disp.y0),
-                   "zoom": 0}])
+      toc.append([2, bookmark_title(m), out + 1, bookmark_dest(disp, out)])
   return toc
 
 

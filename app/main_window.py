@@ -18,6 +18,7 @@ from app.enhance.vector_enhance import VectorParams
 from app.enhance_panel import EnhancePanel
 from app.marks.controller import MarkController
 from app.marks.export import export_csv, export_xlsx
+from app.marks.manager import MarkManagerDialog
 from app.marks.model import STATUS_NG, STATUS_NONE, STATUS_OK, STATUS_PENDING, default_marker
 from app.marks.panel import MarkEditDialog, MarksPanel
 from app.marks.store import SidecarError, load_marks, save_marks, sidecar_path
@@ -114,6 +115,11 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     self.ctl = MarkController(self)
     self.view = pv.PageView(self.ctl)
     self.view.checker = str(self.qs.value("checker", "")) or default_marker()
+    self.view.wheel_up_zooms_in = self.qs.value("wheel_up_zooms_in", "true") == "true"
+    try:
+      self.view.stamp_size_pt = float(self.qs.value("stamp_size_pt", 0) or 0)
+    except (TypeError, ValueError):
+      self.view.stamp_size_pt = 0.0
     self.setAcceptDrops(True)
     self.setWindowIcon(QIcon(str(resource_path("app_icon.png"))))
 
@@ -219,6 +225,10 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     self.a_delete = A("刪除", None, self.delete_selected, QKeySequence.StandardKey.Delete)
     self.a_open_link = A("開啟連結", "link", self._open_selected_link)
 
+    self.a_manage = A("標記管理", "list", self.open_mark_manager, "Ctrl+M",
+                      tip="篩選、選取、刪除標記，或只輸出選取標記的 PDF")
+    self.mark_manager: MarkManagerDialog | None = None
+
     self.a_settings = A("設定", "settings", self.open_settings, "Ctrl+,")
     self.a_help = A("說明", "help", self.open_help, "F1")
     A("深色模式", None, lambda: self.enhance_panel.toggle_dark(), "D")
@@ -255,6 +265,8 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     g.add_separator()
     g.add(self.a_undo)
     g.add(self.a_redo)
+    g.add_separator()
+    g.add(self.a_manage)
     g = ribbon.page("設定")
     g.add(self.a_settings)
     g.add(self.a_help)
@@ -354,6 +366,7 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     v.snapshotRequested.connect(self.on_snapshot)
     v.snapshotCancelled.connect(self.end_snapshot_tool)
     v.linkActivated.connect(self.open_mark_link)
+    v.stampSizeChanged.connect(lambda size: self.qs.setValue("stamp_size_pt", size))
     self.marks_panel.markActivated.connect(v.focus_mark)
     self.marks_panel.editRequested.connect(self.edit_mark)
     self.search_panel.hitsChanged.connect(v.set_search_hits)
@@ -532,6 +545,21 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     if dlg.exec():
       self.ctl.update_marks([mid], "編輯標記", **dlg.values())
 
+  def open_mark_manager(self):
+    if not self.doc:
+      self.msg("請先開啟圖面", 3000)
+      return
+    if self.mark_manager is None:
+      dlg = MarkManagerDialog(self.ctl, self)
+      dlg.markActivated.connect(self.view.focus_mark)
+      dlg.editRequested.connect(self.edit_mark)
+      dlg.exportRequested.connect(self.export_selected_marks)
+      theme.dark_title_bar(dlg)
+      self.mark_manager = dlg
+    self.mark_manager.show()
+    self.mark_manager.raise_()
+    self.mark_manager.activateWindow()
+
   def _add_mark_actions(self, m: QMenu, ids: list):
     for a, ic in ((self.a_none, "status_none"), (self.a_ok, "stamp_ok"), (self.a_ng, "stamp_ng"),
                   (self.a_pending, "stamp_pending")):
@@ -577,12 +605,14 @@ class MainWindow(OutputActionsMixin, QMainWindow):
   # ---- 設定 / 說明 / 搜尋 ----
   def open_settings(self):
     dlg = SettingsDialog(str(self.qs.value("checker", "")), self.doc.path if self.doc else None,
-                         self)
+                         self, wheel_up_zooms_in=self.view.wheel_up_zooms_in)
     theme.dark_title_bar(dlg)
     if dlg.exec():
       name = dlg.checker_name()
       self.qs.setValue("checker", name)  # 留空＝使用電腦使用者
       self.view.checker = name or default_marker()
+      self.view.wheel_up_zooms_in = dlg.wheel_up_zooms_in()
+      self.qs.setValue("wheel_up_zooms_in", "true" if self.view.wheel_up_zooms_in else "false")
 
   def open_help(self):
     dlg = HelpDialog(APP_FULL_NAME, VERSION, self)

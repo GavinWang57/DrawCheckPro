@@ -82,6 +82,36 @@ class OutputDialog(QDialog):
     return next(k for k, b in self.buttons.items() if b.isChecked())
 
 
+class SelectedExportDialog(QDialog):
+  """輸出選取標記的 PDF：只含有標記的頁，或全部頁（只畫選取的標記）。"""
+
+  def __init__(self, mark_count: int, marked_pages: int, page_count: int, enhanced: bool = False,
+               parent=None):
+    super().__init__(parent)
+    self.setWindowTitle(f"輸出選取的 {mark_count} 個標記")
+    scope = QGroupBox("頁面範圍")
+    sl = QVBoxLayout(scope)
+    self.marked_only = QRadioButton(f"只含有選取標記的頁（{marked_pages} 頁）")
+    self.all_pages = QRadioButton(f"全部頁（共 {page_count} 頁，只畫選取的標記）")
+    self.marked_only.setChecked(True)
+    sl.addWidget(self.marked_only)
+    sl.addWidget(self.all_pages)
+    enh_box, self.enhanced = _enhance_box(enhanced)
+    bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                          | QDialogButtonBox.StandardButton.Cancel)
+    bb.button(QDialogButtonBox.StandardButton.Ok).setText("輸出…")
+    bb.accepted.connect(self.accept)
+    bb.rejected.connect(self.reject)
+    lay = QVBoxLayout(self)
+    lay.addWidget(scope)
+    lay.addWidget(enh_box)
+    lay.addWidget(bb)
+    self.resize(440, 0)
+
+  def scope(self) -> str:
+    return SCOPE_ALL if self.all_pages.isChecked() else SCOPE_PAGE
+
+
 class PrintOptionsDialog(QDialog):
   def __init__(self, current_page: int, page_count: int, enhanced: bool = False, parent=None):
     super().__init__(parent)
