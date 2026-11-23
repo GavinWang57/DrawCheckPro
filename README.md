@@ -9,7 +9,7 @@
 
 ## 下載
 - **[下載最新版安裝檔](https://github.com/GavinWang57/DrawCheckPro/releases/latest)**（Windows，`DrawCheckPro-Setup-<版本>.exe`）
-- 目前版本：[1.1.0](https://github.com/GavinWang57/DrawCheckPro/releases/download/v1.1.0/DrawCheckPro-Setup-1.1.0.exe)
+- 目前版本：[1.1.1](https://github.com/GavinWang57/DrawCheckPro/releases/download/v1.1.1/DrawCheckPro-Setup-1.1.1.exe)
 
 安裝不需要系統管理員權限，下載後直接執行即可。
 
