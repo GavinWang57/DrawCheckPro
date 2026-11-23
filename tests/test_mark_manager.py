@@ -148,3 +148,8 @@ def test_bookmark_on_rotated_page(tmp_path):
   disp = (fitz.Rect(m.rect) * res[0].rotation_matrix).normalize()
   assert dest["zoom"] > 1
   assert dest["to"].x <= disp.x0 and dest["to"].y <= disp.y0
+
+
+def test_marks_panel_opens_manager(window, qapp):
+  window.marks_panel.manage.click()
+  assert window.mark_manager is not None and window.mark_manager.isVisible()

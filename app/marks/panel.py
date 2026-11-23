@@ -5,12 +5,13 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QPlainTextEdit, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout, QWidget)
+                               QLineEdit, QPlainTextEdit, QPushButton, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from app.marks.controller import MarkController
 from app.marks.export import summary
 from app.marks.model import STATUS_COLORS, STATUS_LABELS, STATUSES, Mark
+from app.ui import icons
 
 _FILTER_ALL = "all"
 
@@ -18,6 +19,7 @@ _FILTER_ALL = "all"
 class MarksPanel(QWidget):
   markActivated = Signal(str)
   editRequested = Signal(str)
+  manageRequested = Signal()
 
   def __init__(self, ctl: MarkController, parent=None):
     super().__init__(parent)
@@ -30,9 +32,13 @@ class MarksPanel(QWidget):
     for s in STATUSES:
       self.filter.addItem(STATUS_LABELS[s], s)
     self.only_page = QCheckBox("僅本頁")
+    self.manage = QPushButton(icons.icon("list"), "標記管理")
+    self.manage.setToolTip("開啟標記管理：多條件篩選、多選刪除、輸出選取標記的 PDF（Ctrl+M）")
+    self.manage.clicked.connect(self.manageRequested)
     top = QHBoxLayout()
     top.addWidget(self.filter, 1)
     top.addWidget(self.only_page)
+    top.addWidget(self.manage)
 
     self.table = QTableWidget(0, 5)
     self.table.setHorizontalHeaderLabels(["#", "頁", "狀態", "實測值", "內容 / 備註"])

@@ -38,7 +38,7 @@ from app.viewer.tile_renderer import to_pixmap
 APP_NAME = "DrawCheck Pro"
 APP_SUBTITLE = "工程圖檢核專家"
 APP_FULL_NAME = f"{APP_NAME}｜{APP_SUBTITLE}"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 SETTINGS_ORG = "DrawCheckPro"
 AUTOSAVE_MS = 30_000
 THUMB_RENDER_PX = 420
@@ -369,6 +369,7 @@ class MainWindow(OutputActionsMixin, QMainWindow):
     v.stampSizeChanged.connect(lambda size: self.qs.setValue("stamp_size_pt", size))
     self.marks_panel.markActivated.connect(v.focus_mark)
     self.marks_panel.editRequested.connect(self.edit_mark)
+    self.marks_panel.manageRequested.connect(self.open_mark_manager)
     self.search_panel.hitsChanged.connect(v.set_search_hits)
     self.search_panel.hitActivated.connect(lambda i, _p: v.focus_hit(i))
     self.enhance_panel.settingsChanged.connect(self._apply_settings)
