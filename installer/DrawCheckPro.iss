@@ -50,6 +50,10 @@ Launch=啟動 {#AppName}
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"
 Name: "assocpdf"; Description: "{cm:AssocPdf}"
 
+[InstallDelete]
+; 升級時先清掉舊版的函式庫資料夾，避免殘留不再使用的檔案
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "dist\DrawCheckPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

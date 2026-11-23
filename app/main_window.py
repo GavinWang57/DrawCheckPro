@@ -38,7 +38,7 @@ from app.viewer.tile_renderer import to_pixmap
 APP_NAME = "DrawCheck Pro"
 APP_SUBTITLE = "工程圖檢核專家"
 APP_FULL_NAME = f"{APP_NAME}｜{APP_SUBTITLE}"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SETTINGS_ORG = "DrawCheckPro"
 AUTOSAVE_MS = 30_000
 THUMB_RENDER_PX = 420
