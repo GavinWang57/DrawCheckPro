@@ -69,7 +69,7 @@ class MarkController(QObject):
     if marks:
       self.undo_stack.push(_DeleteCmd(self, marks, f"刪除 {len(marks)} 個標記"))
 
-  def update_marks(self, ids: list[str], text: str = "修改標記", **changes):
+  def update_marks(self, ids: list[str], label: str = "修改標記", /, **changes):
     changes = {k: v for k, v in changes.items() if k in EDITABLE_FIELDS}
     before, after = {}, {}
     for i in ids:
@@ -81,7 +81,7 @@ class MarkController(QObject):
         continue
       before[i], after[i] = old, dict(changes)
     if before:
-      self.undo_stack.push(_UpdateCmd(self, before, after, text))
+      self.undo_stack.push(_UpdateCmd(self, before, after, label))
 
   # ---- 給 command 用的底層操作 ----
   def _insert(self, m: Mark):
